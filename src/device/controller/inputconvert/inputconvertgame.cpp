@@ -19,7 +19,14 @@ InputConvertGame::InputConvertGame(Controller *controller) : InputConvertNormal(
     connect(m_ctrlSteerWheel.delayData.timer, &QTimer::timeout, this, &InputConvertGame::onSteerWheelTimer);
 }
 
-InputConvertGame::~InputConvertGame() {}
+InputConvertGame::~InputConvertGame()
+{
+    const auto touches = m_activeTouches;
+    for (auto it = touches.cbegin(); it != touches.cend(); ++it) {
+        sendTouchUpEvent(it.key(), it.value());
+    }
+    emit grabCursor(false);
+}
 
 void InputConvertGame::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
@@ -191,11 +198,14 @@ void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAct
     }
 
     QPoint absolutePos = calcFrameAbsolutePos(pos).toPoint();
-    if (AMOTION_EVENT_ACTION_MOVE == action && m_lastAbsolutePos == absolutePos) {
+    if (AMOTION_EVENT_ACTION_MOVE == action && m_activeTouches.contains(id)
+            && calcFrameAbsolutePos(m_activeTouches.value(id)).toPoint() == absolutePos) {
         delete controlMsg;
         return;
     }
     m_lastAbsolutePos = absolutePos;
+    if (action == AMOTION_EVENT_ACTION_UP) { m_activeTouches.remove(id); }
+    else { m_activeTouches[id] = pos; }
 
     controlMsg->setInjectTouchMsgData(
         static_cast<quint64>(id),

@@ -1,5 +1,6 @@
 #ifndef INPUTCONVERTGAME_H
 #define INPUTCONVERTGAME_H
+#include <QMap>
 
 #include <QPointF>
 #include <QQueue>
@@ -11,6 +12,7 @@
 class InputConvertGame : public InputConvertNormal
 {
     Q_OBJECT
+    QMap<int, QPointF> m_activeTouches;
 public:
     InputConvertGame(Controller *controller);
     virtual ~InputConvertGame();

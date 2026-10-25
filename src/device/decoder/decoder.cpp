@@ -166,28 +166,14 @@ void Decoder::onNewFrame() {
     }
 
     m_vb->lock();
-    const AVFrame *frame = m_vb->consumeRenderedFrame();
-
-    int width = frame->width;
-    int height = frame->height;
-    int linesizeY = frame->linesize[0];
-    int linesizeU = frame->linesize[1];
-    int linesizeV = frame->linesize[2];
-
-    QByteArray bufY(linesizeY * height, Qt::Uninitialized);
-    QByteArray bufU(linesizeU * (height / 2), Qt::Uninitialized);
-    QByteArray bufV(linesizeV * (height / 2), Qt::Uninitialized);
-
-    for (int i = 0; i < height; ++i) {
-        memcpy(bufY.data() + i * linesizeY, frame->data[0] + i * linesizeY, linesizeY);
-    }
-    for (int i = 0; i < height / 2; ++i) {
-        memcpy(bufU.data() + i * linesizeU, frame->data[1] + i * linesizeU, linesizeU);
-        memcpy(bufV.data() + i * linesizeV, frame->data[2] + i * linesizeV, linesizeV);
-    }
-
+    // Keep FFmpeg's reference-counted pixels alive without copying each plane
+    // or holding the decoder lock while the GUI uploads the textures.
+    AVFrame *frame = av_frame_clone(m_vb->consumeRenderedFrame());
     m_vb->unLock();
-
-    m_onFrame(width, height, reinterpret_cast<uint8_t*>(bufY.data()), reinterpret_cast<uint8_t*>(bufU.data()), reinterpret_cast<uint8_t*>(bufV.data()), linesizeY, linesizeU, linesizeV);
+    if (!frame) {
+        return;
+    }
+    m_onFrame(frame->width, frame->height, frame->data[0], frame->data[1], frame->data[2],
+              frame->linesize[0], frame->linesize[1], frame->linesize[2]);
+    av_frame_free(&frame);
 }
-

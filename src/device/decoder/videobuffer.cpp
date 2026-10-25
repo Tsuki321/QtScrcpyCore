@@ -113,46 +113,32 @@ void VideoBuffer::peekRenderedFrame(std::function<void(int width, int height, ui
         return;
     }
 
-    lock();
-    auto frame = m_renderingframe;
-    int width = frame->width;
-    int height = frame->height;
-    int linesize = frame->linesize[0];
-
-    // create buffer
-    uint8_t* rgbBuffer = new uint8_t[linesize * height * 4];
-    AVFrame *rgbFrame = av_frame_alloc();
-    if (!rgbFrame) {
-        delete [] rgbBuffer;
+    m_mutex.lock();
+    AVFrame *frame = m_renderingframe && m_renderingframe->data[0]
+            ? av_frame_clone(m_renderingframe) : nullptr;
+    m_mutex.unlock();
+    if (!frame) { return; }
+    const int width = frame->width;
+    const int height = frame->height;
+    AVFrame *rgb = av_frame_alloc();
+    if (!rgb) { av_frame_free(&frame); return; }
+    rgb->format = AV_PIX_FMT_RGB32;
+    rgb->width = width;
+    rgb->height = height;
+    if (av_frame_get_buffer(rgb, 1) < 0) {
+        av_frame_free(&rgb);
+        av_frame_free(&frame);
         return;
     }
-
-    // bind buffer to AVFrame
-    av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, rgbBuffer, AV_PIX_FMT_RGB32, width, height, 4);
-
-    // convert
     AVFrameConvert convert;
     convert.setSrcFrameInfo(width, height, AV_PIX_FMT_YUV420P);
     convert.setDstFrameInfo(width, height, AV_PIX_FMT_RGB32);
-    bool ret = false;
-    ret = convert.init();
-    if (!ret) {
-        delete [] rgbBuffer;
-        av_free(rgbFrame);
-        return;
+    if (convert.init()) {
+        if (convert.convert(frame, rgb)) { onFrame(width, height, rgb->data[0]); }
+        convert.deInit();
     }
-    ret = convert.convert(frame, rgbFrame);
-    if (!ret) {
-        delete [] rgbBuffer;
-        av_free(rgbFrame);
-        return;
-    }
-    convert.deInit();
-    av_free(rgbFrame);
-    unLock();
-
-    onFrame(width, height, rgbBuffer);
-    delete [] rgbBuffer;
+    av_frame_free(&rgb);
+    av_frame_free(&frame);
 }
 
 void VideoBuffer::interrupt()
