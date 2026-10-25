@@ -55,9 +55,6 @@ public:
 signals:
     void grabCursor(bool grab);
 
-protected:
-    bool event(QEvent *event);
-
 private:
     bool sendControl(const QByteArray &buffer);
     void postKeyCodeClick(AndroidKeycode keycode);

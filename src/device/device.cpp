@@ -190,6 +190,7 @@ void Device::initSignals()
                 // init decoder
                 if (m_decoder) {
                     m_decoder->open();
+                    m_decoder->setRenderExpiredFrames(m_params.renderExpiredFrames);
                 }
 
                 // init stream

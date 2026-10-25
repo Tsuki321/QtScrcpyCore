@@ -9,6 +9,8 @@ extern "C"
 
 #include <functional>
 
+#include <QByteArray>
+
 class VideoBuffer;
 class Decoder : public QObject
 {
@@ -21,6 +23,7 @@ public:
     void close();
     bool push(const AVPacket *packet);
     void peekFrame(std::function<void(int width, int height, uint8_t* dataRGB32)> onFrame);
+    void setRenderExpiredFrames(bool renderExpiredFrames);
 
 signals:
     void updateFPS(quint32 fps);

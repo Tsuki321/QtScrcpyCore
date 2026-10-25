@@ -187,12 +187,11 @@ void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAct
     }
 
     QPoint absolutePos = calcFrameAbsolutePos(pos).toPoint();
-    static QPoint lastAbsolutePos = absolutePos;
-    if (AMOTION_EVENT_ACTION_MOVE == action && lastAbsolutePos == absolutePos) {
+    if (AMOTION_EVENT_ACTION_MOVE == action && m_lastAbsolutePos == absolutePos) {
         delete controlMsg;
         return;
     }
-    lastAbsolutePos = absolutePos;
+    m_lastAbsolutePos = absolutePos;
 
     controlMsg->setInjectTouchMsgData(
         static_cast<quint64>(id),

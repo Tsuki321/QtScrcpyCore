@@ -27,6 +27,8 @@ Server::Server(QObject *parent) : QObject(parent)
         QTcpSocket *tmp = m_serverSocket.nextPendingConnection();
         if (dynamic_cast<VideoSocket *>(tmp)) {
             m_videoSocket = dynamic_cast<VideoSocket *>(tmp);
+            m_videoSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+            m_videoSocket->setSocketOption(QAbstractSocket::ReceiveBufferSocketOption, 512 * 1024);
             if (!m_videoSocket->isValid() || !readInfo(m_videoSocket, m_deviceName, m_deviceSize)) {
                 stop();
                 emit serverStarted(false);
@@ -34,6 +36,7 @@ Server::Server(QObject *parent) : QObject(parent)
         } else {
             m_controlSocket = tmp;
             if (m_controlSocket && m_controlSocket->isValid()) {
+                m_controlSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
                 // we don't need the server socket anymore
                 // just m_videoSocket is ok
                 m_serverSocket.close();
@@ -402,6 +405,10 @@ void Server::onConnectTimer()
 
     VideoSocket *videoSocket = new VideoSocket();
     QTcpSocket *controlSocket = new QTcpSocket();
+
+    videoSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    videoSocket->setSocketOption(QAbstractSocket::ReceiveBufferSocketOption, 512 * 1024);
+    controlSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
 
     videoSocket->connectToHost(QHostAddress::LocalHost, m_params.localPort);
     if (!videoSocket->waitForConnected(1000)) {

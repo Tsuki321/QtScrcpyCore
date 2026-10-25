@@ -126,6 +126,8 @@ private:
         QQueue<quint32> queueTimer;
         int pressKey = 0;
     } m_dragDelayData;
+
+    QPoint m_lastAbsolutePos;
 };
 
 #endif // INPUTCONVERTGAME_H

@@ -22,7 +22,8 @@ Controller::~Controller() {}
 void Controller::postControlMsg(ControlMsg *controlMsg)
 {
     if (controlMsg) {
-        QCoreApplication::postEvent(this, controlMsg);
+        sendControl(controlMsg->serializeData());
+        delete controlMsg;
     }
 }
 
@@ -219,18 +220,6 @@ void Controller::keyEvent(const QKeyEvent *from, const QSize &frameSize, const Q
     if (m_inputConvert) {
         m_inputConvert->keyEvent(from, frameSize, showSize);
     }
-}
-
-bool Controller::event(QEvent *event)
-{
-    if (event && static_cast<ControlMsg::Type>(event->type()) == ControlMsg::Control) {
-        ControlMsg *controlMsg = dynamic_cast<ControlMsg *>(event);
-        if (controlMsg) {
-            sendControl(controlMsg->serializeData());
-        }
-        return true;
-    }
-    return QObject::event(event);
 }
 
 bool Controller::sendControl(const QByteArray &buffer)
