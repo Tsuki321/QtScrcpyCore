@@ -151,6 +151,7 @@ void Device::updateScript(QString script)
         return;
     }
     if (m_controller) {
+        m_params.gameScript = script;
         m_controller->updateScript(script);
     }
 }

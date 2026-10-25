@@ -145,6 +145,7 @@ public:
     virtual bool isCameraMode() const { return false; }
     virtual bool isFlexDisplay() const { return false; }
 
+    virtual QString currentScript() const { return {}; }
     virtual void updateScript(QString script) = 0;
     virtual bool isCurrentCustomKeymap() = 0;
 };

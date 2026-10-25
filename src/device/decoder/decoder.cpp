@@ -177,3 +177,8 @@ void Decoder::onNewFrame() {
               frame->linesize[0], frame->linesize[1], frame->linesize[2]);
     av_frame_free(&frame);
 }
+
+void Decoder::setRenderExpiredFrames(bool enabled)
+{
+    if (m_vb) { m_vb->setRenderExpiredFrames(enabled); }
+}

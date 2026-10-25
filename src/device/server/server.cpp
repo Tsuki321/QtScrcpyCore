@@ -29,7 +29,6 @@ Server::Server(QObject *parent) : QObject(parent)
         if (dynamic_cast<VideoSocket *>(tmp)) {
             m_videoSocket = dynamic_cast<VideoSocket *>(tmp);
             m_videoSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
-            m_videoSocket->setSocketOption(QAbstractSocket::ReceiveBufferSocketOption, 512 * 1024);
             if (!m_videoSocket->isValid() || !readInfo(m_videoSocket, m_deviceName, m_deviceSize)) {
                 stop();
                 emit serverStarted(false);
@@ -441,10 +440,6 @@ void Server::onConnectTimer()
     VideoSocket *videoSocket = new VideoSocket();
     QTcpSocket *controlSocket = new QTcpSocket();
 
-    videoSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
-    videoSocket->setSocketOption(QAbstractSocket::ReceiveBufferSocketOption, 512 * 1024);
-    controlSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
-
     videoSocket->connectToHost(QHostAddress::LocalHost, m_params.localPort);
     if (!videoSocket->waitForConnected(1000)) {
         // 连接到adb很快的，这里失败不重试
@@ -460,6 +455,9 @@ void Server::onConnectTimer()
         qWarning("control socket connect to server failed");
         goto result;
     }
+
+    videoSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    controlSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
 
     if (QTcpSocket::ConnectedState == videoSocket->state()) {
         // connect will success even if devices offline, recv data is real connect success

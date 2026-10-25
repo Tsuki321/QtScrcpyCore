@@ -1,4 +1,4 @@
-﻿#ifndef DEVICE_H
+#ifndef DEVICE_H
 #define DEVICE_H
 
 #include <set>
@@ -79,6 +79,7 @@ public:
     bool isCameraMode() const override;
     bool isFlexDisplay() const override;
 
+    QString currentScript() const override { return m_params.gameScript; }
     void updateScript(QString script) override;
     bool isCurrentCustomKeymap() override;
 
