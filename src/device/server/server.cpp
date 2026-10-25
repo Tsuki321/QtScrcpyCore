@@ -9,6 +9,7 @@
 #include "server.h"
 
 #define DEVICE_NAME_FIELD_LENGTH 64
+#define VIDEO_META_LENGTH 16
 #define SOCKET_NAME_PREFIX "scrcpy"
 #define MAX_CONNECT_COUNT 30
 #define MAX_RESTART_COUNT 1
@@ -140,6 +141,16 @@ bool Server::execute()
     args << m_params.serverVersion;
 
     args << QString("video_bit_rate=%1").arg(QString::number(m_params.bitRate));
+    const bool cameraMode = m_params.videoSource == qsc::VIDEO_SOURCE_CAMERA;
+    if (cameraMode) {
+        args << "video_source=camera";
+        if (!m_params.cameraId.isEmpty()) {
+            args << QString("camera_id=%1").arg(m_params.cameraId);
+        } else {
+            args << QString("camera_facing=%1")
+                        .arg(m_params.cameraFacing == qsc::CAMERA_FACING_FRONT ? "front" : "back");
+        }
+    }
     if (!m_params.logLevel.isEmpty()) {
         args << QString("log_level=%1").arg(m_params.logLevel);
     }
@@ -163,8 +174,27 @@ bool Server::execute()
     if (m_tunnelForward) {
         args << QString("tunnel_forward=true");
     }
-    if (!m_params.crop.isEmpty()) {
-        args << QString("crop=%1").arg(m_params.crop);
+    if (!cameraMode) {
+        if (!m_params.crop.isEmpty()) {
+            args << QString("crop=%1").arg(m_params.crop);
+        }
+        if (!m_params.newDisplay.isEmpty()) {
+            args << QString("new_display=%1").arg(m_params.newDisplay);
+            if (m_params.flexDisplay) {
+                args << "flex_display=true";
+            }
+            if (!m_params.vdDestroyContent) {
+                args << "vd_destroy_content=false";
+            }
+            if (!m_params.vdSystemDecorations) {
+                args << "vd_system_decorations=false";
+            }
+            if (!m_params.displayImePolicy.isEmpty()) {
+                args << QString("display_ime_policy=%1").arg(m_params.displayImePolicy);
+            }
+        } else if (m_params.displayId > 0) {
+            args << QString("display_id=%1").arg(m_params.displayId);
+        }
     }
     if (!m_params.control) {
         args << QString("control=false");
@@ -173,17 +203,22 @@ bool Server::execute()
     // args << "display_id=0";
     // 默认是false，不需要设置
     // args << "show_touches=false";
-    if (m_params.stayAwake) {
-        args << QString("stay_awake=true");
+    if (!cameraMode) {
+        if (m_params.stayAwake) {
+            args << QString("stay_awake=true");
+        }
+        if (m_params.keepActive) {
+            args << "keep_active=true";
+        }
     }
     // code option
     // https://github.com/Genymobile/scrcpy/commit/080a4ee3654a9b7e96c8ffe37474b5c21c02852a
     // <https://d.android.com/reference/android/media/MediaFormat>
     if (!m_params.codecOptions.isEmpty()) {
-        args << QString("codec_options=%1").arg(m_params.codecOptions);
+        args << QString("video_codec_options=%1").arg(m_params.codecOptions);
     }
     if (!m_params.codecName.isEmpty()) {
-        args << QString("encoder_name=%1").arg(m_params.codecName);
+        args << QString("video_encoder=%1").arg(m_params.codecName);
     }
     args << "audio=false";
     // 服务端默认-1，可不传
@@ -340,8 +375,8 @@ bool Server::readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size
 {
     QElapsedTimer timer;
     timer.start();
-    unsigned char buf[DEVICE_NAME_FIELD_LENGTH + 12];
-    while (videoSocket->bytesAvailable() <= (DEVICE_NAME_FIELD_LENGTH + 12)) {
+    unsigned char buf[DEVICE_NAME_FIELD_LENGTH + VIDEO_META_LENGTH];
+    while (videoSocket->bytesAvailable() < (DEVICE_NAME_FIELD_LENGTH + VIDEO_META_LENGTH)) {
         videoSocket->waitForReadyRead(300);
         if (timer.elapsed() > 3000) {
             qInfo("readInfo timeout");
@@ -351,16 +386,16 @@ bool Server::readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size
     qDebug() << "readInfo wait time:" << timer.elapsed();
 
     qint64 len = videoSocket->read((char *)buf, sizeof(buf));
-    if (len < DEVICE_NAME_FIELD_LENGTH + 12) {
+    if (len < DEVICE_NAME_FIELD_LENGTH + VIDEO_META_LENGTH) {
         qInfo("Could not retrieve device information");
         return false;
     }
     buf[DEVICE_NAME_FIELD_LENGTH - 1] = '\0'; // in case the client sends garbage
     deviceName = QString::fromUtf8((const char *)buf);
 
-    // 前4个字节是AVCodecID,当前只支持H264,所以先不解析
-    size.setWidth(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 4]));
-    size.setHeight(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 8]));
+    // scrcpy 4.x: codec id (4 bytes), then session metadata (flags, width, height).
+    size.setWidth(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 8]));
+    size.setHeight(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 12]));
 
     return true;
 }

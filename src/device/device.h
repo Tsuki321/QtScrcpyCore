@@ -14,7 +14,7 @@ class QKeyEvent;
 class Recorder;
 class Server;
 class VideoBuffer;
-class Decoder;
+class IDecoder;
 class FileHandler;
 class Demuxer;
 class VideoForm;
@@ -55,7 +55,11 @@ public:
     void postCut() override;
     void setDisplayPower(bool on) override;
     void expandNotificationPanel() override;
+    void expandSettingsPanel() override;
     void collapsePanel() override;
+    void rotateDevice() override;
+    void startApp(const QString &name) override;
+    void resizeDisplay(const QSize &size) override;
     void postBackOrScreenOn(bool down) override;
     void postTextInput(QString &text) override;
     void requestDeviceClipboard() override;
@@ -66,9 +70,14 @@ public:
 
     void screenshot() override;
     void showTouch(bool show) override;
+    void setCameraTorch(bool on) override;
+    void cameraZoomIn() override;
+    void cameraZoomOut() override;
 
     bool isReversePort(quint16 port) override;
     const QString &getSerial() override;
+    bool isCameraMode() const override;
+    bool isFlexDisplay() const override;
 
     void updateScript(QString script) override;
     bool isCurrentCustomKeymap() override;
@@ -81,7 +90,7 @@ private:
     // server relevant
     QPointer<Server> m_server;
     bool m_serverStartSuccess = false;
-    QPointer<Decoder> m_decoder;
+    QPointer<IDecoder> m_decoder;
     QPointer<Controller> m_controller;
     QPointer<FileHandler> m_fileHandler;
     QPointer<Demuxer> m_stream;

@@ -71,6 +71,7 @@ set(QSC_INCLUDE_SOURCES
     include/QtScrcpyCore.h
     include/QtScrcpyCoreDef.h
     include/adbprocess.h
+    include/IDecoder.h
 )
 source_group(include FILES ${QSC_INCLUDE_SOURCES})
 
@@ -198,6 +199,12 @@ endif()
 
 # MacOS
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # VideoToolbox decoder (macOS, Objective-C++)
+    target_sources(${QSC_PROJECT_NAME} PRIVATE
+        src/device/decoder/vtdecoder.mm
+        src/device/decoder/vtdecoder.h
+    )
+
     # ffmpeg
     # include
     target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/ffmpeg/include)
@@ -209,6 +216,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         avcodec.58
         avutil.56
         swscale.5
+    )
+
+    # VideoToolbox + CoreMedia + CoreVideo (Apple Silicon H.264 硬解)
+    target_link_libraries(${QSC_PROJECT_NAME} PRIVATE
+        "-framework VideoToolbox"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
     )
 
     # copy bundle file    

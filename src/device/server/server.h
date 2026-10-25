@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QSize>
 
+#include "../../../include/QtScrcpyCoreDef.h"
 #include "adbprocess.h"
 #include "tcpserver.h"
 #include "videosocket.h"
@@ -36,11 +37,14 @@ public:
         quint16 maxSize = 720;         // 视频分辨率
         quint32 bitRate = 8000000;     // 视频比特率
         quint32 maxFps = 0;            // 视频最大帧率
+        qsc::VideoSource videoSource = qsc::VIDEO_SOURCE_DISPLAY;
+        qsc::CameraFacing cameraFacing = qsc::CAMERA_FACING_BACK;
+        QString cameraId = "";
         bool useReverse = true;        // true:先使用adb reverse，失败后自动使用adb forward；false:直接使用adb forward
         int captureOrientationLock = 0; // 是否锁定采集方向 0不锁定 1锁定指定方向 2锁定原始方向
         int captureOrientation = 0;     // 采集方向 0 90 180 270
         int stayAwake = false;         // 是否保持唤醒
-        QString serverVersion = "3.3.3"; // server版本
+        QString serverVersion = "4.1"; // server版本
         QString logLevel = "debug";  // log级别 verbose/debug/info/warn/error
         // 编码选项 ""表示默认
         // 例如 CodecOptions="profile=1,level=2"
@@ -51,6 +55,13 @@ public:
         QString codecName = "";
 
         QString crop = "";             // 视频裁剪
+        qint32 displayId = 0;
+        QString newDisplay = "";
+        bool flexDisplay = false;
+        bool vdDestroyContent = true;
+        bool vdSystemDecorations = true;
+        QString displayImePolicy = "";
+        bool keepActive = false;
         bool control = true;           // 安卓端是否接收键鼠控制
         qint32 scid = -1;             // 随机数，作为localsocket名字后缀，方便同时连接同一个设备多次
     };

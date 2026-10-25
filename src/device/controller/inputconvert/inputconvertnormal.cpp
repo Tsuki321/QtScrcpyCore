@@ -4,41 +4,9 @@
 #include "inputconvertnormal.h"
 #include "controller.h"
 
-InputConvertNormal::InputConvertNormal(Controller *controller) : InputConvertBase(controller)
-{
-    m_moveFlushTimer.setSingleShot(true);
-    m_moveFlushTimer.setInterval(8);
-    connect(&m_moveFlushTimer, &QTimer::timeout, this, [this]() {
-        flushPendingMove();
-    });
-}
+InputConvertNormal::InputConvertNormal(Controller *controller) : InputConvertBase(controller) {}
 
 InputConvertNormal::~InputConvertNormal() {}
-
-void InputConvertNormal::sendTouchEvent(AndroidMotioneventAction action, QRect pos, AndroidMotioneventButtons actionButton, AndroidMotioneventButtons buttons, float pressure)
-{
-    ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
-    if (!controlMsg) {
-        return;
-    }
-    controlMsg->setInjectTouchMsgData(
-        static_cast<quint64>(POINTER_ID_GENERIC_FINGER),
-        action,
-        actionButton,
-        buttons,
-        pos,
-        pressure);
-    sendControlMsg(controlMsg);
-}
-
-void InputConvertNormal::flushPendingMove()
-{
-    if (!m_hasPendingMove) {
-        return;
-    }
-    m_hasPendingMove = false;
-    sendTouchEvent(AMOTION_EVENT_ACTION_MOVE, m_pendingMovePos, AMOTION_EVENT_BUTTON_PRIMARY, m_pendingMoveButtons, 0.0f);
-}
 
 void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
@@ -46,6 +14,7 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
         return;
     }
 
+    // action
     AndroidMotioneventAction action;
     switch (from->type()) {
     case QEvent::MouseButtonPress:
@@ -55,6 +24,7 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
         action = AMOTION_EVENT_ACTION_UP;
         break;
     case QEvent::MouseMove:
+        // only support left button drag
         if (!(from->buttons() & Qt::LeftButton)) {
             return;
         }
@@ -64,28 +34,83 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
         return;
     }
 
+    // pos
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     QPointF pos = from->localPos();
 #else
     QPointF pos = from->position();
 #endif
+    // convert pos
     pos.setX(pos.x() * frameSize.width() / showSize.width());
     pos.setY(pos.y() * frameSize.height() / showSize.height());
-    QRect posRect(pos.toPoint(), frameSize);
 
-    if (action == AMOTION_EVENT_ACTION_MOVE) {
-        m_hasPendingMove = true;
-        m_pendingMovePos = posRect;
-        m_pendingMoveButtons = convertMouseButtons(from->buttons());
-        m_moveFlushTimer.start();
+    // set data
+    ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
+    if (!controlMsg) {
         return;
     }
+    controlMsg->setInjectTouchMsgData(
+        static_cast<quint64>(POINTER_ID_GENERIC_FINGER),
+        action,
+        convertMouseButton(from->button()),
+        convertMouseButtons(from->buttons()),
+        QRect(pos.toPoint(), frameSize),
+        AMOTION_EVENT_ACTION_DOWN == action ? 1.0f : 0.0f);
+    sendControlMsg(controlMsg);
 
-    m_moveFlushTimer.stop();
-    flushPendingMove();
+    // pinch-to-zoom / tilt simulation (ported from scrcpy):
+    // inject a second "virtual finger" whose position is the drag position
+    // mirrored through the center of the screen (on one or both axes).
+    const bool ctrl = from->modifiers().testFlag(Qt::ControlModifier);
+    const bool shift = from->modifiers().testFlag(Qt::ShiftModifier);
 
-    float pressure = AMOTION_EVENT_ACTION_DOWN == action ? 1.0f : 0.0f;
-    sendTouchEvent(action, posRect, convertMouseButton(from->button()), convertMouseButtons(from->buttons()), pressure);
+    bool startPinch = AMOTION_EVENT_ACTION_DOWN == action
+            && from->button() == Qt::LeftButton
+            && !m_vfingerDown && (ctrl || shift);
+    bool endPinch = AMOTION_EVENT_ACTION_UP == action
+            && from->button() == Qt::LeftButton && m_vfingerDown;
+
+    if (startPinch) {
+        // Ctrl: invert both axes (pinch/rotate); Shift: invert x only (vertical
+        // tilt); Ctrl+Shift: invert y only (horizontal tilt). Same rule as scrcpy.
+        m_vfingerInvertX = ctrl != shift;
+        m_vfingerInvertY = ctrl;
+        m_vfingerDown = true;
+    }
+
+    if (m_vfingerDown && (startPinch || endPinch || AMOTION_EVENT_ACTION_MOVE == action)) {
+        QPoint vpos = pos.toPoint();
+        if (m_vfingerInvertX) {
+            vpos.setX(frameSize.width() - vpos.x());
+        }
+        if (m_vfingerInvertY) {
+            vpos.setY(frameSize.height() - vpos.y());
+        }
+        AndroidMotioneventAction vaction = action;
+        if (endPinch) {
+            vaction = AMOTION_EVENT_ACTION_UP;
+        }
+        sendVirtualFingerEvent(vaction, vpos, frameSize);
+        if (endPinch) {
+            m_vfingerDown = false;
+        }
+    }
+}
+
+void InputConvertNormal::sendVirtualFingerEvent(AndroidMotioneventAction action, const QPoint &pos, const QSize &frameSize)
+{
+    ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
+    if (!controlMsg) {
+        return;
+    }
+    controlMsg->setInjectTouchMsgData(
+        static_cast<quint64>(POINTER_ID_VIRTUAL_FINGER),
+        action,
+        static_cast<AndroidMotioneventButtons>(0),
+        static_cast<AndroidMotioneventButtons>(0),
+        QRect(pos, frameSize),
+        AMOTION_EVENT_ACTION_UP == action ? 0.0f : 1.0f);
+    sendControlMsg(controlMsg);
 }
 
 void InputConvertNormal::wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize)

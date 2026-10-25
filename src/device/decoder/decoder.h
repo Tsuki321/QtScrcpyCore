@@ -9,24 +9,22 @@ extern "C"
 
 #include <functional>
 
-#include <QByteArray>
+#include "IDecoder.h"
 
 class VideoBuffer;
-class Decoder : public QObject
+class Decoder : public IDecoder
 {
     Q_OBJECT
 public:
     Decoder(std::function<void(int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV, int linesizeY, int linesizeU, int linesizeV)> onFrame, QObject *parent = Q_NULLPTR);
     virtual ~Decoder();
 
-    bool open();
-    void close();
-    bool push(const AVPacket *packet);
-    void peekFrame(std::function<void(int width, int height, uint8_t* dataRGB32)> onFrame);
-    void setRenderExpiredFrames(bool renderExpiredFrames);
-
-signals:
-    void updateFPS(quint32 fps);
+    bool open() override;
+    void close() override;
+    bool push(const AVPacket *packet) override;
+    void peekFrame(std::function<void(int width, int height, uint8_t* dataRGB32)> onFrame) override;
+    void onVideoSessionChanged(const QSize &size) override;
+    void setRenderExpiredFrames(bool enabled) override;
 
 private slots:
     void onNewFrame();

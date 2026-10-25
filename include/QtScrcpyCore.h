@@ -26,7 +26,17 @@ public:
         Q_UNUSED(linesizeU);
         Q_UNUSED(linesizeV);
     }
+    // VideoToolbox Metal 路径帧回调（仅 macOS arm64）
+    virtual void onFrameMetal(void* cvPixelBuffer, int width, int height) {
+        Q_UNUSED(cvPixelBuffer);
+        Q_UNUSED(width);
+        Q_UNUSED(height);
+    }
     virtual void updateFPS(quint32 fps) { Q_UNUSED(fps); }
+    virtual void onVideoSessionChanged(const QSize &size, bool clientResized) {
+        Q_UNUSED(size);
+        Q_UNUSED(clientResized);
+    }
     virtual void grabCursor(bool grab) {Q_UNUSED(grab);}
 
     virtual void mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize) {
@@ -59,7 +69,10 @@ public:
         Q_UNUSED(on);
     }
     virtual void expandNotificationPanel() {}
+    virtual void expandSettingsPanel() {}
     virtual void collapsePanel() {}
+    virtual void rotateDevice() {}
+    virtual void startApp(const QString &name) { Q_UNUSED(name); }
     virtual void postBackOrScreenOn(bool down) { Q_UNUSED(down); }
     virtual void postTextInput(QString &text) { Q_UNUSED(text); }
     virtual void requestDeviceClipboard() {}
@@ -108,7 +121,11 @@ public:
     virtual void postCut() = 0;
     virtual void setDisplayPower(bool on) = 0;
     virtual void expandNotificationPanel() = 0;
+    virtual void expandSettingsPanel() = 0;
     virtual void collapsePanel() = 0;
+    virtual void rotateDevice() = 0;
+    virtual void startApp(const QString &name) = 0;
+    virtual void resizeDisplay(const QSize &size) = 0;
     virtual void postBackOrScreenOn(bool down) = 0;
     virtual void postTextInput(QString &text) = 0;
     virtual void requestDeviceClipboard() = 0;
@@ -119,9 +136,14 @@ public:
 
     virtual void screenshot() = 0;
     virtual void showTouch(bool show) = 0;
+    virtual void setCameraTorch(bool on) { Q_UNUSED(on); }
+    virtual void cameraZoomIn() {}
+    virtual void cameraZoomOut() {}
 
     virtual bool isReversePort(quint16 port) = 0;
     virtual const QString &getSerial() = 0;
+    virtual bool isCameraMode() const { return false; }
+    virtual bool isFlexDisplay() const { return false; }
 
     virtual void updateScript(QString script) = 0;
     virtual bool isCurrentCustomKeymap() = 0;

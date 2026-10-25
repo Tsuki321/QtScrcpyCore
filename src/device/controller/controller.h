@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QSize>
 
 #include "inputconvertbase.h"
 
@@ -19,6 +20,7 @@ public:
     virtual ~Controller();
 
     void postControlMsg(ControlMsg *controlMsg);
+    void setCameraMode(bool cameraMode);
     void recvDeviceMsg(DeviceMsg *deviceMsg);
     void test(QRect rc);
 
@@ -35,8 +37,16 @@ public:
     void copy();
     void cut();
     void expandNotificationPanel();
+    void expandSettingsPanel();
     void collapsePanel();
+    void rotateDevice();
+    void startApp(const QString &name);
+    void scanFile(const QString &path);
+    void resizeDisplay(const QSize &size);
     void setDisplayPower(bool on);
+    void setCameraTorch(bool on);
+    void cameraZoomIn();
+    void cameraZoomOut();
 
     // for input convert
     void mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize);
@@ -58,11 +68,15 @@ signals:
 private:
     bool sendControl(const QByteArray &buffer);
     void postKeyCodeClick(AndroidKeycode keycode);
+    void sendPendingResize();
 
 private:
     QPointer<Receiver> m_receiver;
     QPointer<InputConvertBase> m_inputConvert;
     std::function<qint64(const QByteArray&)> m_sendData = Q_NULLPTR;
+    QSize m_pendingResize;
+    bool m_resizeQueued = false;
+    bool m_cameraMode = false;
 };
 
 #endif // CONTROLLER_H

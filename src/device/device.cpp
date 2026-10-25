@@ -5,6 +5,9 @@
 #include "controller.h"
 #include "devicemsg.h"
 #include "decoder.h"
+#ifdef Q_OS_MACOS
+#include "vtdecoder.h"
+#endif
 #include "device.h"
 #include "filehandler.h"
 #include "recorder.h"
@@ -15,17 +18,56 @@ namespace qsc {
 
 Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params(params)
 {
+    if (isCameraMode()) {
+        // Camera capture has no Android display target. Normalize every
+        // display-only option here so all callers (UI, group control, or
+        // future APIs) receive the same safety boundary.
+        m_params.closeScreen = false;
+        m_params.stayAwake = false;
+        m_params.crop.clear();
+        m_params.displayId = 0;
+        m_params.newDisplay.clear();
+        m_params.flexDisplay = false;
+        m_params.vdDestroyContent = true;
+        m_params.vdSystemDecorations = true;
+        m_params.displayImePolicy.clear();
+        m_params.keepActive = false;
+        m_params.startApp.clear();
+        m_params.gameScript.clear();
+    }
+
     if (!params.display && !m_params.recordFile) {
         qCritical("not display must be recorded");
         return;
     }
 
     if (params.display) {
-        m_decoder = new Decoder([this](int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV, int linesizeY, int linesizeU, int linesizeV) {
-            for (const auto& item : m_deviceObservers) {
-                item->onFrame(width, height, dataY, dataU, dataV, linesizeY, linesizeU, linesizeV);
-            }
-        }, this);
+        // 根据 decodeMode 工厂创建解码器
+        bool useVT = false;
+#ifdef Q_OS_MACOS
+        useVT = (m_params.decodeMode == MODE_VT_METAL && VTDecoder::isAvailable());
+#endif
+        if (useVT) {
+#ifdef Q_OS_MACOS
+            auto* vt = new VTDecoder(this);
+            vt->onFrame = [this](void* cvPixelBuffer, int width, int height) {
+                for (const auto& item : m_deviceObservers) {
+                    item->onFrameMetal(cvPixelBuffer, width, height);
+                }
+            };
+            m_decoder = vt;
+#endif
+        } else {
+            m_decoder = new Decoder([this](int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV, int linesizeY, int linesizeU, int linesizeV) {
+                for (const auto& item : m_deviceObservers) {
+                    item->onFrame(width, height, dataY, dataU, dataV, linesizeY, linesizeU, linesizeV);
+                }
+            }, this);
+        }
+        if (m_decoder) {
+            m_decoder->setRenderExpiredFrames(m_params.renderExpiredFrames);
+        }
+
         m_fileHandler = new FileHandler(this);
         m_controller = new Controller([this](const QByteArray& buffer) -> qint64 {
             if (!m_server || !m_server->getControlSocket()) {
@@ -33,7 +75,8 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
             }
 
             return m_server->getControlSocket()->write(buffer.data(), buffer.length());
-        }, params.gameScript, this);
+        }, m_params.gameScript, this);
+        m_controller->setCameraMode(isCameraMode());
     }
 
     m_stream = new Demuxer(this);
@@ -92,8 +135,21 @@ const QString &Device::getSerial()
     return m_params.serial;
 }
 
+bool Device::isCameraMode() const
+{
+    return m_params.videoSource == VIDEO_SOURCE_CAMERA;
+}
+
+bool Device::isFlexDisplay() const
+{
+    return m_params.flexDisplay;
+}
+
 void Device::updateScript(QString script)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (m_controller) {
         m_controller->updateScript(script);
     }
@@ -113,6 +169,9 @@ void Device::screenshot()
 
 void Device::showTouch(bool show)
 {
+    if (isCameraMode()) {
+        return;
+    }
     AdbProcess *adb = new qsc::AdbProcess();
     if (!adb) {
         return;
@@ -125,6 +184,30 @@ void Device::showTouch(bool show)
     adb->setShowTouchesEnabled(getSerial(), show);
 
     qInfo() << getSerial() << " show touch " << (show ? "enable" : "disable");
+}
+
+void Device::setCameraTorch(bool on)
+{
+    if (!isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->setCameraTorch(on);
+}
+
+void Device::cameraZoomIn()
+{
+    if (!isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->cameraZoomIn();
+}
+
+void Device::cameraZoomOut()
+{
+    if (!isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->cameraZoomOut();
 }
 
 bool Device::isReversePort(quint16 port)
@@ -164,6 +247,11 @@ void Device::initSignals()
                 tips = QString("%1 failed").arg(tipsType);
             }
             qInfo() << tips;
+        });
+        connect(m_fileHandler, &FileHandler::mediaScanRequested, this, [this](const QString &directory) {
+            if (m_controller && !isCameraMode()) {
+                m_controller->scanFile(directory);
+            }
         });
     }
 
@@ -209,7 +297,13 @@ void Device::initSignals()
                         QByteArray byteArray = controlSocket->peek(controlSocket->bytesAvailable());
                         DeviceMsg deviceMsg;
                         qint32 consume = deviceMsg.deserialize(byteArray);
-                        if (0 >= consume) {
+                        if (consume == 0) {
+                            // Incomplete device message: wait for the next readyRead.
+                            break;
+                        }
+                        if (consume < 0) {
+                            qCritical("Unsupported device message; closing control socket");
+                            controlSocket->disconnectFromHost();
                             break;
                         }
                         controlSocket->read(consume);
@@ -218,8 +312,14 @@ void Device::initSignals()
                 });
 
                 // 显示界面时才自动息屏（m_params.display）
-                if (m_params.closeScreen && m_params.display && m_controller) {
+                if (m_params.videoSource == VIDEO_SOURCE_DISPLAY && m_params.closeScreen && m_params.display && m_controller) {
                     m_controller->setDisplayPower(false);
+                }
+                // Starting an Android app is only meaningful for display capture.
+                // Some bundled server builds do not accept control message type 16
+                // while a camera stream is active, which terminates the session.
+                if (m_params.videoSource == VIDEO_SOURCE_DISPLAY && !m_params.startApp.isEmpty() && m_controller) {
+                    m_controller->startApp(m_params.startApp);
                 }
             } else {
                 m_server->stop();
@@ -232,6 +332,17 @@ void Device::initSignals()
     }
 
     if (m_stream) {
+        connect(m_stream, &Demuxer::sessionChanged, this, [this](const QSize &size, bool clientResized) {
+            qInfo() << "Video session changed to" << size << "client resized:" << clientResized;
+            if (m_decoder) {
+                m_decoder->onVideoSessionChanged(size);
+            }
+            for (const auto& item : m_deviceObservers) {
+                item->onVideoSessionChanged(size, clientResized);
+            }
+            // Match scrcpy: Recorder keeps the initial session dimensions for
+            // its single H.264 stream and does not restart on later sessions.
+        });
         connect(m_stream, &Demuxer::onStreamStop, this, [this]() {
             disconnectDevice();
             qDebug() << "stream thread stop";
@@ -253,7 +364,7 @@ void Device::initSignals()
     }
 
     if (m_decoder) {
-        connect(m_decoder, &Decoder::updateFPS, this, [this](quint32 fps) {
+        connect(m_decoder, &IDecoder::updateFPS, this, [this](quint32 fps) {
             for (const auto& item : m_deviceObservers) {
                 item->updateFPS(fps);
             }
@@ -264,6 +375,17 @@ void Device::initSignals()
 bool Device::connectDevice()
 {
     if (!m_server || m_serverStartSuccess) {
+        return false;
+    }
+
+    if (!m_params.newDisplay.isEmpty() && m_params.displayId > 0) {
+        qCritical("new_display and display_id are mutually exclusive");
+        return false;
+    }
+    if (m_params.flexDisplay
+        && (m_params.videoSource != VIDEO_SOURCE_DISPLAY || !m_params.display
+            || m_params.newDisplay.isEmpty() || !m_params.crop.isEmpty())) {
+        qCritical("flex_display requires display video, control, new_display, and no crop");
         return false;
     }
 
@@ -280,20 +402,33 @@ bool Device::connectDevice()
         params.serverRemotePath = m_params.serverRemotePath;
         params.serial = m_params.serial;
         params.localPort = m_params.localPort;
+        // scrcpy permits max_size together with flex_display. In that case,
+        // the server constrains each requested virtual-display resize to the
+        // encoder cap.
         params.maxSize = m_params.maxSize;
         params.bitRate = m_params.bitRate;
         params.maxFps = m_params.maxFps;
+        params.videoSource = m_params.videoSource;
+        params.cameraFacing = m_params.cameraFacing;
+        params.cameraId = m_params.cameraId;
         params.useReverse = m_params.useReverse;
         params.captureOrientationLock = m_params.captureOrientationLock;
         params.captureOrientation = m_params.captureOrientation;
-        params.stayAwake = m_params.stayAwake;
+        params.stayAwake = m_params.videoSource == VIDEO_SOURCE_CAMERA ? false : m_params.stayAwake;
         params.serverVersion = m_params.serverVersion;
         params.logLevel = m_params.logLevel;
         params.codecOptions = m_params.codecOptions;
         params.codecName = m_params.codecName;
         params.scid = m_params.scid;
 
-        params.crop = "";
+        params.crop = m_params.crop;
+        params.displayId = m_params.displayId;
+        params.newDisplay = m_params.newDisplay;
+        params.flexDisplay = m_params.flexDisplay;
+        params.vdDestroyContent = m_params.vdDestroyContent;
+        params.vdSystemDecorations = m_params.vdSystemDecorations;
+        params.displayImePolicy = m_params.displayImePolicy;
+        params.keepActive = m_params.keepActive;
         params.control = true;
         m_server->start(params);
     });
@@ -334,6 +469,9 @@ void Device::disconnectDevice()
 
 void Device::postGoBack()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -346,6 +484,9 @@ void Device::postGoBack()
 
 void Device::postGoHome()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -358,6 +499,9 @@ void Device::postGoHome()
 
 void Device::postGoMenu()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -370,6 +514,9 @@ void Device::postGoMenu()
 
 void Device::postAppSwitch()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -382,6 +529,9 @@ void Device::postAppSwitch()
 
 void Device::postPower()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -394,6 +544,9 @@ void Device::postPower()
 
 void Device::postVolumeUp()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -406,6 +559,9 @@ void Device::postVolumeUp()
 
 void Device::postVolumeDown()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -418,6 +574,9 @@ void Device::postVolumeDown()
 
 void Device::postCopy()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -430,6 +589,9 @@ void Device::postCopy()
 
 void Device::postCut()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -442,6 +604,9 @@ void Device::postCut()
 
 void Device::setDisplayPower(bool on)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -454,6 +619,9 @@ void Device::setDisplayPower(bool on)
 
 void Device::expandNotificationPanel()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -464,8 +632,22 @@ void Device::expandNotificationPanel()
     }
 }
 
+void Device::expandSettingsPanel()
+{
+    if (isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->expandSettingsPanel();
+    for (const auto& item : m_deviceObservers) {
+        item->expandSettingsPanel();
+    }
+}
+
 void Device::collapsePanel()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -476,8 +658,43 @@ void Device::collapsePanel()
     }
 }
 
+void Device::rotateDevice()
+{
+    if (isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->rotateDevice();
+    for (const auto& item : m_deviceObservers) {
+        item->rotateDevice();
+    }
+}
+
+void Device::startApp(const QString &name)
+{
+    if (isCameraMode() || !m_controller || name.isEmpty()) {
+        return;
+    }
+    m_controller->startApp(name);
+    for (const auto& item : m_deviceObservers) {
+        item->startApp(name);
+    }
+}
+
+void Device::resizeDisplay(const QSize &size)
+{
+    if (isCameraMode() || !m_controller || !m_params.flexDisplay) {
+        return;
+    }
+    // Resize is intentionally not broadcast to group observers. Each virtual
+    // display keeps its own dimensions while group input remains normalized.
+    m_controller->resizeDisplay(size);
+}
+
 void Device::postBackOrScreenOn(bool down)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -490,6 +707,9 @@ void Device::postBackOrScreenOn(bool down)
 
 void Device::postTextInput(QString &text)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -502,6 +722,9 @@ void Device::postTextInput(QString &text)
 
 void Device::requestDeviceClipboard()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -514,6 +737,9 @@ void Device::requestDeviceClipboard()
 
 void Device::setDeviceClipboard(bool pause)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -526,6 +752,9 @@ void Device::setDeviceClipboard(bool pause)
 
 void Device::clipboardPaste()
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -538,6 +767,9 @@ void Device::clipboardPaste()
 
 void Device::pushFileRequest(const QString &file, const QString &devicePath)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_fileHandler) {
         return;
     }
@@ -550,6 +782,9 @@ void Device::pushFileRequest(const QString &file, const QString &devicePath)
 
 void Device::installApkRequest(const QString &apkFile)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_fileHandler) {
         return;
     }
@@ -562,6 +797,9 @@ void Device::installApkRequest(const QString &apkFile)
 
 void Device::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -574,6 +812,9 @@ void Device::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const Q
 
 void Device::wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -586,6 +827,9 @@ void Device::wheelEvent(const QWheelEvent *from, const QSize &frameSize, const Q
 
 void Device::keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize)
 {
+    if (isCameraMode()) {
+        return;
+    }
     if (!m_controller) {
         return;
     }
@@ -598,6 +842,9 @@ void Device::keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize
 
 bool Device::isCurrentCustomKeymap()
 {
+    if (isCameraMode()) {
+        return false;
+    }
     if (!m_controller) {
         return false;
     }

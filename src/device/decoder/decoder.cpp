@@ -5,7 +5,7 @@
 #include "videobuffer.h"
 
 Decoder::Decoder(std::function<void(int, int, uint8_t*, uint8_t*, uint8_t*, int, int, int)> onFrame, QObject *parent)
-    : QObject(parent)
+    : IDecoder(parent)
     , m_vb(new VideoBuffer())
     , m_onFrame(onFrame)
 {
@@ -58,6 +58,21 @@ void Decoder::close()
         avcodec_close(m_codecCtx);
     }
     avcodec_free_context(&m_codecCtx);
+}
+
+void Decoder::onVideoSessionChanged(const QSize &size)
+{
+    Q_UNUSED(size);
+    if (m_codecCtx) {
+        avcodec_flush_buffers(m_codecCtx);
+    }
+}
+
+void Decoder::setRenderExpiredFrames(bool enabled)
+{
+    if (m_vb) {
+        m_vb->setRenderExpiredFrames(enabled);
+    }
 }
 
 bool Decoder::push(const AVPacket *packet)
@@ -176,9 +191,3 @@ void Decoder::onNewFrame() {
     m_onFrame(width, height, reinterpret_cast<uint8_t*>(bufY.data()), reinterpret_cast<uint8_t*>(bufU.data()), reinterpret_cast<uint8_t*>(bufV.data()), linesizeY, linesizeU, linesizeV);
 }
 
-void Decoder::setRenderExpiredFrames(bool renderExpiredFrames)
-{
-    if (m_vb) {
-        m_vb->setRenderExpiredFrames(renderExpiredFrames);
-    }
-}
