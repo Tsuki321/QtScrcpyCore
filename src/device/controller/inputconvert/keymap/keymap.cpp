@@ -7,6 +7,7 @@
 #include <QMetaEnum>
 
 #include "keymap.h"
+#include "KeyMapValidation.h"
 
 KeyMap::KeyMap(QObject *parent) : QObject(parent) {}
 
@@ -14,6 +15,16 @@ KeyMap::~KeyMap() {}
 
 void KeyMap::loadKeyMap(const QString &json)
 {
+    QString validationError;
+    if (!KeyMapValidation::parse(json.toUtf8(), nullptr, &validationError)) {
+        qWarning().noquote() << validationError;
+        return;
+    }
+    m_rmapKey.clear();
+    m_rmapMouse.clear();
+    m_keyMapNodes.clear();
+    m_idxMouseMove = -1;
+    m_idxSteerWheel = -1;
     QString errorString;
     QJsonParseError jsonError;
     QJsonDocument jsonDoc;
@@ -78,7 +89,7 @@ void KeyMap::loadKeyMap(const QString &json)
         }
 
         // Sanity check: No ratio must be lower than 0.001
-        if ( ( keyMapNode.data.mouseMove.speedRatio.x() < 0.001f ) || ( keyMapNode.data.mouseMove.speedRatio.x() < 0.001f ) ) {
+        if (keyMapNode.data.mouseMove.speedRatio.x() < 0.001f || keyMapNode.data.mouseMove.speedRatio.y() < 0.001f) {
             errorString = QString("json error: Minimum speedRatio is 0.001");
             goto parseError;
         }
@@ -183,11 +194,10 @@ void KeyMap::loadKeyMap(const QString &json)
                 }
                 KeyMapNode keyMapNode;
                 keyMapNode.type = type;
-                keyMapNode.data.click.keyNode.type = key.first;
-                keyMapNode.data.click.keyNode.key = key.second;
-                keyMapNode.data.click.keyNode.pos = getItemPos(node, "pos");
-                keyMapNode.data.click.switchMap = getItemBool(node, "switchMap");
-                keyMapNode.data.click.keyNode.androidKey = static_cast<AndroidKeycode>(getItemDouble(node, "androidKey"));
+                keyMapNode.data.clickTwice.keyNode.type = key.first;
+                keyMapNode.data.clickTwice.keyNode.key = key.second;
+                keyMapNode.data.clickTwice.keyNode.pos = getItemPos(node, "pos");
+                keyMapNode.data.clickTwice.keyNode.androidKey = static_cast<AndroidKeycode>(getItemDouble(node, "androidKey"));
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
             case KeyMap::KMT_CLICK_MULTI: {
@@ -316,7 +326,7 @@ void KeyMap::loadKeyMap(const QString &json)
     }
     // this must be called after m_keyMapNodes is stable
     makeReverseMap();
-    qInfo() << "Script updated, current keymap mode:normal, Press ~ key to switch keymap mode";
+    qInfo().noquote() << "Script updated, current keymap mode: normal. Toggle with" << rootObj.value("switchKey").toString();
 
 parseError:
     if (!errorString.isEmpty()) {
@@ -489,7 +499,7 @@ bool KeyMap::checkItemPos(const QJsonObject &node, const QString &name)
 
 bool KeyMap::checkForClick(const QJsonObject &node)
 {
-    return checkForClickTwice(node) && checkItemBool(node, "switchMap");
+    return checkForClickTwice(node);
 }
 
 bool KeyMap::checkForClickMulti(const QJsonObject &node)

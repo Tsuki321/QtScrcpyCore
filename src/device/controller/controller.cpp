@@ -4,6 +4,7 @@
 #include <QThread>
 
 #include "controller.h"
+#include "KeyMapValidation.h"
 #include "controlmsg.h"
 #include "inputconvertgame.h"
 #include "receiver.h"
@@ -19,7 +20,11 @@ Controller::Controller(std::function<qint64(const QByteArray&)> sendData, QStrin
     updateScript(gameScript);
 }
 
-Controller::~Controller() {}
+Controller::~Controller()
+{
+    // Input cleanup sends releases through m_sendData, which must still exist.
+    delete m_inputConvert;
+}
 
 void Controller::postControlMsg(ControlMsg *controlMsg)
 {
@@ -71,6 +76,11 @@ void Controller::test(QRect rc)
 
 void Controller::updateScript(QString gameScript)
 {
+    QString error;
+    if (!gameScript.isEmpty() && !KeyMapValidation::parse(gameScript.toUtf8(), nullptr, &error)) {
+        qWarning().noquote() << "Profile unchanged:" << error;
+        return;
+    }
     if (m_inputConvert) {
         delete m_inputConvert;
     }

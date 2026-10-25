@@ -4,6 +4,8 @@
 
 #include <QPointF>
 #include <QQueue>
+#include <QSet>
+#include <QHash>
 
 #include "inputconvertnormal.h"
 #include "keymap.h"
@@ -25,6 +27,9 @@ public:
     void loadKeyMap(const QString &json);
 
 protected:
+    void releaseGameInputs();
+    void processMappedKey(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
+    bool processFreeLook(KeyMap::ActionType type, int key, bool down);
     void updateSize(const QSize &frameSize, const QSize &showSize);
     void sendTouchDownEvent(int id, QPointF pos);
     void sendTouchMoveEvent(int id, QPointF pos);
@@ -43,7 +48,7 @@ protected:
     void processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
 
     // click
-    void processKeyClick(const QPointF &clickPos, bool clickTwice, bool switchMap, const QKeyEvent *from);
+    void processKeyClick(const QPointF &clickPos, bool clickTwice, const QKeyEvent *from);
 
     // click mutil
     void processKeyClickMulti(const KeyMap::DelayClickNode *nodes, const int count, const QKeyEvent *from);
@@ -87,7 +92,11 @@ private:
     int m_multiTouchID[MULTI_TOUCH_MAX_NUM] = { 0 };
     KeyMap m_keyMap;
 
-    bool m_processMouseMove = true;
+    bool m_cursorHidden = false;
+    quint64 m_inputGeneration = 0;
+    QHash<int, quint64> m_sequenceGeneration;
+    QHash<int, int> m_androidKeys;
+    QSet<int> m_pressedBindings;
 
     // steer wheel
     struct
@@ -117,7 +126,9 @@ private:
         bool touching = false;
         int timer = 0;
         bool smallEyes = false;
-        int ignoreCount = 0;
+        bool hasLastPos = false;
+        bool warpPending = false;
+        QPointF warpPos;
     } m_ctrlMouseMove;
 
     // for drag delay

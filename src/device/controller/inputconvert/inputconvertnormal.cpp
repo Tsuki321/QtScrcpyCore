@@ -6,7 +6,9 @@
 
 InputConvertNormal::InputConvertNormal(Controller *controller) : InputConvertBase(controller) {}
 
-InputConvertNormal::~InputConvertNormal()
+InputConvertNormal::~InputConvertNormal() { releaseNormalInputs(); }
+
+void InputConvertNormal::releaseNormalInputs()
 {
     for (int key : m_pressedKeys) {
         auto *message = new ControlMsg(ControlMsg::CMT_INJECT_KEYCODE);
@@ -21,11 +23,15 @@ InputConvertNormal::~InputConvertNormal()
         sendControlMsg(message);
     }
     if (m_vfingerDown) { sendVirtualFingerEvent(AMOTION_EVENT_ACTION_UP, m_virtualPos, m_pointerFrame); }
+    m_pressedKeys.clear();
+    m_repeat = 0;
+    m_pointerDown = false;
+    m_vfingerDown = false;
 }
 
 void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
-    if (!from) {
+    if (!from || frameSize.isEmpty() || showSize.isEmpty()) {
         return;
     }
 
@@ -48,6 +54,9 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
     default:
         return;
     }
+
+    // A profile switch may leave a physical release without a matching press.
+    if (action != AMOTION_EVENT_ACTION_DOWN && !m_pointerDown) { return; }
 
     // pos
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
@@ -135,7 +144,7 @@ void InputConvertNormal::sendVirtualFingerEvent(AndroidMotioneventAction action,
 
 void InputConvertNormal::wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize)
 {
-    if (!from || from->angleDelta().isNull()) {
+    if (!from || frameSize.isEmpty() || showSize.isEmpty() || from->angleDelta().isNull()) {
         return;
     }
 
@@ -190,6 +199,7 @@ void InputConvertNormal::keyEvent(const QKeyEvent *from, const QSize &frameSize,
     if (AKEYCODE_UNKNOWN == keyCode) {
         return;
     }
+    if (action == AKEY_EVENT_ACTION_UP && !m_pressedKeys.contains(keyCode)) { return; }
 
     // set data
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_KEYCODE);

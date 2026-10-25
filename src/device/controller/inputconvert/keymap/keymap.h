@@ -70,7 +70,7 @@ public:
     struct KeyMapNode
     {
         KeyMapType type = KMT_INVALID;
-        union DATA
+        struct DATA
         {
             struct
             {

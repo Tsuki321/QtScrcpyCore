@@ -15,6 +15,9 @@ public:
     virtual void wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize);
     virtual void keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize);
 
+protected:
+    void releaseNormalInputs();
+
 private:
     AndroidMotioneventButtons convertMouseButtons(Qt::MouseButtons buttonState);
     AndroidMotioneventButtons convertMouseButton(Qt::MouseButton button);

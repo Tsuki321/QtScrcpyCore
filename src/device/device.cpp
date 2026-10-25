@@ -1,3 +1,4 @@
+#include "KeyMapValidation.h"
 #include <QDir>
 #include <QMessageBox>
 #include <QTimer>
@@ -147,6 +148,11 @@ bool Device::isFlexDisplay() const
 
 void Device::updateScript(QString script)
 {
+    QString error;
+    if (!script.isEmpty() && !KeyMapValidation::parse(script.toUtf8(), nullptr, &error)) {
+        qWarning().noquote() << "Profile unchanged:" << error;
+        return;
+    }
     if (isCameraMode()) {
         return;
     }
