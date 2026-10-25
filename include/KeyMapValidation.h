@@ -45,7 +45,7 @@ public:
     {
         QMap<int, QString> bindings;
         const auto bind = [&bindings](const QJsonObject &node, const QString &field,
-                                     const QString &path, bool keyboardOnly = false) -> QString {
+                                     const QString &path, bool keyboardOnly) -> QString {
             const auto name = node.value(field).toString();
             const int id = bindingId(name, keyboardOnly);
             const auto location = path + "." + field;
@@ -56,7 +56,7 @@ public:
             bindings.insert(id, location);
             return {};
         };
-        QString error = bind(root, "switchKey", "Profile");
+        QString error = bind(root, "switchKey", "Profile", false);
         if (!error.isEmpty()) { return error; }
         if (root.contains("keyMapNodes") && !root.value("keyMapNodes").isArray()) {
             return "keyMapNodes must be an array.";
@@ -81,7 +81,7 @@ public:
                 if (eyes.value("type") != "KMT_CLICK" || !position(eyes, "pos")) {
                     return "Free look (smallEyes) needs type KMT_CLICK and a valid pos.";
                 }
-                error = bind(eyes, "key", "Free look");
+                error = bind(eyes, "key", "Free look", false);
                 if (!error.isEmpty()) { return error; }
             }
         }
@@ -111,7 +111,7 @@ public:
                 && type != "KMT_DRAG" && type != "KMT_ANDROID_KEY") {
                 return path + ": unsupported mapping type.";
             }
-            error = bind(node, "key", path);
+            error = bind(node, "key", path, false);
             if (!error.isEmpty()) { return error; }
             if ((type == "KMT_CLICK" || type == "KMT_CLICK_TWICE") && !position(node, "pos")) {
                 return path + ": pos needs x and y between 0 and 1.";
