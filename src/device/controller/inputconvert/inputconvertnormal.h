@@ -2,6 +2,7 @@
 #define INPUTCONVERT_H
 
 #include "inputconvertbase.h"
+#include <QSet>
 
 class InputConvertNormal : public InputConvertBase
 {
@@ -30,6 +31,11 @@ private:
     void sendVirtualFingerEvent(AndroidMotioneventAction action, const QPoint &pos,
                                 const QSize &frameSize);
 
+    QSet<int> m_pressedKeys;
+    bool m_pointerDown = false;
+    QPoint m_pointerPos;
+    QPoint m_virtualPos;
+    QSize m_pointerFrame;
     bool m_vfingerDown = false;
     bool m_vfingerInvertX = false;
     bool m_vfingerInvertY = false;

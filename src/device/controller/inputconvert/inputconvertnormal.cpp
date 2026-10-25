@@ -6,7 +6,22 @@
 
 InputConvertNormal::InputConvertNormal(Controller *controller) : InputConvertBase(controller) {}
 
-InputConvertNormal::~InputConvertNormal() {}
+InputConvertNormal::~InputConvertNormal()
+{
+    for (int key : m_pressedKeys) {
+        auto *message = new ControlMsg(ControlMsg::CMT_INJECT_KEYCODE);
+        message->setInjectKeycodeMsgData(AKEY_EVENT_ACTION_UP, static_cast<AndroidKeycode>(key), 0, AMETA_NONE);
+        sendControlMsg(message);
+    }
+    if (m_pointerDown) {
+        auto *message = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
+        message->setInjectTouchMsgData(static_cast<quint64>(POINTER_ID_GENERIC_FINGER), AMOTION_EVENT_ACTION_UP,
+                static_cast<AndroidMotioneventButtons>(0), static_cast<AndroidMotioneventButtons>(0),
+                QRect(m_pointerPos, m_pointerFrame), 0.0f);
+        sendControlMsg(message);
+    }
+    if (m_vfingerDown) { sendVirtualFingerEvent(AMOTION_EVENT_ACTION_UP, m_virtualPos, m_pointerFrame); }
+}
 
 void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
@@ -43,6 +58,10 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
     // convert pos
     pos.setX(pos.x() * frameSize.width() / showSize.width());
     pos.setY(pos.y() * frameSize.height() / showSize.height());
+
+    m_pointerDown = action != AMOTION_EVENT_ACTION_UP;
+    m_pointerPos = pos.toPoint();
+    m_pointerFrame = frameSize;
 
     // set data
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
@@ -90,6 +109,7 @@ void InputConvertNormal::mouseEvent(const QMouseEvent *from, const QSize &frameS
         if (endPinch) {
             vaction = AMOTION_EVENT_ACTION_UP;
         }
+        m_virtualPos = vpos;
         sendVirtualFingerEvent(vaction, vpos, frameSize);
         if (endPinch) {
             m_vfingerDown = false;
@@ -183,6 +203,8 @@ void InputConvertNormal::keyEvent(const QKeyEvent *from, const QSize &frameSize,
         m_repeat = 0;
     }
 
+    if (action == AKEY_EVENT_ACTION_UP) { m_pressedKeys.remove(keyCode); }
+    else { m_pressedKeys.insert(keyCode); }
     controlMsg->setInjectKeycodeMsgData(action, keyCode, m_repeat, convertMetastate(from->modifiers()));
     sendControlMsg(controlMsg);
 }
